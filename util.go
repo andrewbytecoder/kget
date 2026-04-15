@@ -1,0 +1,53 @@
+package pget
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+func getPartialDirname(targetDir, filename string, procs int) string {
+	if targetDir == "" {
+		return fmt.Sprintf("_%s.%d", filename, procs)
+	}
+	return filepath.Join(targetDir, fmt.Sprintf("_%s.%d", filename, procs))
+}
+
+// getPartialFilePath returns the path of the partial file
+func getPartialFilePath(targetDir, filename string, id, procs int) string {
+	return filepath.Join(
+		targetDir,
+		fmt.Sprintf("%s.%d.%d", filename, procs, id),
+	)
+}
+
+// checkProgress In order to confirm the degree of progress
+func checkProgress(dirname string) (int64, error) {
+	return subDirsize(dirname)
+}
+
+func subDirsize(dirname string) (int64, error) {
+	var size int64
+	err := filepath.Walk(dirname, func(_ string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+
+	return size, err
+}
+
+func makeRange(i, procs int, rangeSize, contentLength int64) Range {
+	low := rangeSize * int64(i)
+	if i == procs-1 {
+		return Range{
+			low:  low,
+			high: contentLength - 1,
+		}
+	}
+	return Range{
+		low:  low,
+		high: low + rangeSize - 1,
+	}
+}
