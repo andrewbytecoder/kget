@@ -227,7 +227,7 @@ func (k *kcpRangeReadCloser) Close() error {
 	return k.c.Close()
 }
 
-func kcpDoHTTP(ctx context.Context, addr string, req *kcpHTTPReq) (*kcpHTTPResp, error) {
+func kcpDoHTTP(ctx context.Context, addr string, req *kcpHTTPReq, rawBody []byte) (*kcpHTTPResp, error) {
 	sess, br, bw, err := kcpDial(ctx, addr)
 	if err != nil {
 		return nil, err
@@ -240,6 +240,16 @@ func kcpDoHTTP(ctx context.Context, addr string, req *kcpHTTPReq) (*kcpHTTPResp,
 	}
 	if err := writeFrame(bw, b); err != nil {
 		return nil, err
+	}
+	if req != nil && req.BodyLen > 0 && req.BodyB64 == "" {
+		if int64(len(rawBody)) != req.BodyLen {
+			return nil, fmt.Errorf("raw body length mismatch: have=%d want=%d", len(rawBody), req.BodyLen)
+		}
+		if len(rawBody) > 0 {
+			if _, err := bw.Write(rawBody); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if err := bw.Flush(); err != nil {
 		return nil, err

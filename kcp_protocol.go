@@ -62,6 +62,9 @@ type kcpHTTPReq struct {
 	Path    string            `json:"path"`
 	Headers map[string]string `json:"headers,omitempty"`
 	BodyB64 string            `json:"body_b64,omitempty"`
+	// BodyLen indicates the raw body byte length that follows the JSON frame on the KCP stream.
+	// If BodyB64 is set, BodyLen is ignored.
+	BodyLen int64 `json:"body_len,omitempty"`
 }
 
 type kcpHTTPResp struct {

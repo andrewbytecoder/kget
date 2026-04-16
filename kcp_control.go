@@ -25,9 +25,10 @@ func (c *ControlClient) Do(ctx context.Context, method, path string, headers map
 		Headers: headers,
 	}
 	if len(body) > 0 {
-		req.BodyB64 = base64.StdEncoding.EncodeToString(body)
+		// Prefer raw streaming body on the KCP stream (no base64 overhead, supports larger bodies).
+		req.BodyLen = int64(len(body))
 	}
-	return kcpDoHTTP(ctx, c.Addr, &req)
+	return kcpDoHTTP(ctx, c.Addr, &req, body)
 }
 
 func (c *ControlClient) SendAlertmanager(ctx context.Context, bodyJSON []byte) error {

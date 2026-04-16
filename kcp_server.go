@@ -90,7 +90,7 @@ func (s *KCPServer) handleSession(sess *kcp.UDPSession) {
 		s.handleRange(sess, reqFrame, br, bw)
 		_ = bw.Flush()
 	case kcpMsgTypeHTTP:
-		s.handleHTTP(reqFrame, bw)
+		s.handleHTTP(reqFrame, br, bw)
 		_ = bw.Flush()
 	case kcpMsgTypeAM:
 		s.handleAlertmanager(reqFrame, bw)
@@ -260,30 +260,60 @@ func mustJSON(v any) []byte {
 	return b
 }
 
-func (s *KCPServer) handleHTTP(frame []byte, bw *bufio.Writer) {
+func (s *KCPServer) handleHTTP(frame []byte, br *bufio.Reader, bw *bufio.Writer) {
 	var req kcpHTTPReq
 	if err := json.Unmarshal(frame, &req); err != nil {
 		_ = writeFrame(bw, mustJSON(kcpHTTPResp{Type: kcpMsgTypeHTTPR, ID: "", Status: 400, Err: err.Error()}))
 		return
 	}
 
-	body, err := decodeB64(req.BodyB64)
-	if err != nil {
-		_ = writeFrame(bw, mustJSON(kcpHTTPResp{Type: kcpMsgTypeHTTPR, ID: req.ID, Status: 400, Err: "invalid body_b64"}))
-		return
+	var (
+		bodyBytes  []byte
+		bodyReader io.Reader
+		bodyLen    int64
+	)
+	if req.BodyB64 != "" {
+		b, err := decodeB64(req.BodyB64)
+		if err != nil {
+			_ = writeFrame(bw, mustJSON(kcpHTTPResp{Type: kcpMsgTypeHTTPR, ID: req.ID, Status: 400, Err: "invalid body_b64"}))
+			return
+		}
+		bodyBytes = b
+		bodyReader = bytesReader(b)
+		bodyLen = int64(len(b))
+	} else if req.BodyLen > 0 {
+		bodyLen = req.BodyLen
+		// Raw body bytes follow the JSON frame on the KCP stream.
+		bodyReader = io.LimitReader(br, bodyLen)
+		if s.HTTPUpstream == "" {
+			// Built-in routes need the full body as bytes.
+			limited := io.LimitReader(bodyReader, bodyLen)
+			b, err := io.ReadAll(limited)
+			if err != nil {
+				_ = writeFrame(bw, mustJSON(kcpHTTPResp{Type: kcpMsgTypeHTTPR, ID: req.ID, Status: 400, Err: err.Error()}))
+				return
+			}
+			if int64(len(b)) != bodyLen {
+				_ = writeFrame(bw, mustJSON(kcpHTTPResp{Type: kcpMsgTypeHTTPR, ID: req.ID, Status: 400, Err: "short body"}))
+				return
+			}
+			bodyBytes = b
+			bodyReader = bytesReader(b)
+		}
 	}
 
 	var status int
 	var headers map[string]string
 	var respBody []byte
+	var err error
 	if s.HTTPUpstream != "" {
-		status, headers, respBody, err = s.proxyHTTP(req.Method, req.Path, req.Headers, body)
+		status, headers, respBody, err = s.proxyHTTP(req.Method, req.Path, req.Headers, bodyReader, bodyLen)
 		if err != nil {
 			_ = writeFrame(bw, mustJSON(kcpHTTPResp{Type: kcpMsgTypeHTTPR, ID: req.ID, Status: 502, Err: err.Error()}))
 			return
 		}
 	} else {
-		status, headers, respBody = s.routeHTTP(req.Method, req.Path, req.Headers, body)
+		status, headers, respBody = s.routeHTTP(req.Method, req.Path, req.Headers, bodyBytes)
 	}
 	resp := kcpHTTPResp{
 		Type:    kcpMsgTypeHTTPR,
@@ -356,7 +386,7 @@ func (s *KCPServer) routeHTTP(method, path string, headers map[string]string, bo
 	}
 }
 
-func (s *KCPServer) proxyHTTP(method, p string, headers map[string]string, body []byte) (int, map[string]string, []byte, error) {
+func (s *KCPServer) proxyHTTP(method, p string, headers map[string]string, body io.Reader, bodyLen int64) (int, map[string]string, []byte, error) {
 	u, err := url.Parse(s.HTTPUpstream)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return 0, nil, nil, fmt.Errorf("invalid http upstream: %q", s.HTTPUpstream)
@@ -367,9 +397,12 @@ func (s *KCPServer) proxyHTTP(method, p string, headers map[string]string, body 
 	}
 	target := u.ResolveReference(rel)
 
-	req, err := http.NewRequest(strings.ToUpper(method), target.String(), bytesReader(body))
+	req, err := http.NewRequest(strings.ToUpper(method), target.String(), body)
 	if err != nil {
 		return 0, nil, nil, err
+	}
+	if bodyLen > 0 && req.Body != nil {
+		req.ContentLength = bodyLen
 	}
 	for k, v := range headers {
 		if strings.TrimSpace(k) == "" {
