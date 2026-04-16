@@ -6,12 +6,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/andrewbytecoder/kget"
+	kget "github.com/andrewbytecoder/kget"
 	"github.com/spf13/cobra"
 )
 
 func main() {
 	var listen, root string
+	var httpUpstream string
 	var logLevel string
 
 	rootCmd := &cobra.Command{
@@ -32,7 +33,7 @@ func main() {
 				return fmt.Errorf("invalid --log-level: %s", logLevel)
 			}
 			h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-			pget.SetLogger(slog.New(h))
+			kget.SetLogger(slog.New(h))
 			return nil
 		},
 	}
@@ -41,13 +42,18 @@ func main() {
 		Use:   "serve",
 		Short: "Serve files over KCP",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			srv := &pget.KCPServer{RootDir: root}
-			fmt.Fprintf(os.Stdout, "pgetkcpd listening on %s (root=%s)\n", listen, root)
+			srv := &kget.KCPServer{RootDir: root, HTTPUpstream: httpUpstream}
+			if httpUpstream != "" {
+				fmt.Fprintf(os.Stdout, "pgetkcpd listening on %s (root=%s, http_upstream=%s)\n", listen, root, httpUpstream)
+			} else {
+				fmt.Fprintf(os.Stdout, "pgetkcpd listening on %s (root=%s)\n", listen, root)
+			}
 			return srv.ListenAndServe(listen)
 		},
 	}
 	serveCmd.Flags().StringVar(&listen, "listen", ":29900", "KCP listen address (host:port)")
 	serveCmd.Flags().StringVar(&root, "root", ".", "root directory to serve")
+	serveCmd.Flags().StringVar(&httpUpstream, "http-upstream", "", "Optional HTTP upstream base URL for control proxying, e.g. http://127.0.0.1:9093")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 
 	rootCmd.AddCommand(serveCmd)

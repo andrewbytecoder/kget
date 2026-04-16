@@ -227,3 +227,72 @@ func (k *kcpRangeReadCloser) Close() error {
 	return k.c.Close()
 }
 
+func kcpDoHTTP(ctx context.Context, addr string, req *kcpHTTPReq) (*kcpHTTPResp, error) {
+	sess, br, bw, err := kcpDial(ctx, addr)
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeFrame(bw, b); err != nil {
+		return nil, err
+	}
+	if err := bw.Flush(); err != nil {
+		return nil, err
+	}
+
+	respFrame, err := readFrame(br)
+	if err != nil {
+		return nil, err
+	}
+	var resp kcpHTTPResp
+	if err := json.Unmarshal(respFrame, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Type != kcpMsgTypeHTTPR {
+		return nil, fmt.Errorf("unexpected response type: %s", resp.Type)
+	}
+	if resp.Err != "" {
+		return &resp, fmt.Errorf(resp.Err)
+	}
+	return &resp, nil
+}
+
+func kcpSendAlertmanager(ctx context.Context, addr string, msg *kcpAlertmanagerMsg) error {
+	sess, br, bw, err := kcpDial(ctx, addr)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	if err := writeFrame(bw, b); err != nil {
+		return err
+	}
+	if err := bw.Flush(); err != nil {
+		return err
+	}
+	respFrame, err := readFrame(br)
+	if err != nil {
+		return err
+	}
+	var resp kcpOKResp
+	if err := json.Unmarshal(respFrame, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		if resp.Err != "" {
+			return fmt.Errorf(resp.Err)
+		}
+		return fmt.Errorf("alertmanager send failed")
+	}
+	return nil
+}
+

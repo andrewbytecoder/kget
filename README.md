@@ -58,16 +58,52 @@ pget get --kcp 127.0.0.1:29900 --path "main.go" -p 4 -o .
 pget get --kcp 10.0.0.2:29900 --path "releases/app.zip" -p 8 -o "./downloads/"
 ```
 
+### Control (RESTful over KCP)
+
+`pgetkcpd` also exposes lightweight RESTful-style control endpoints tunneled over KCP.
+
+```bash
+pget call --kcp <host:port> --method GET --path /healthz
+pget call --kcp <host:port> --method GET --path /control/ping
+```
+
+Send JSON:
+
+```bash
+pget call --kcp 127.0.0.1:29900 --method POST --path /alerts/alertmanager --header "Content-Type: application/json" --data @alert.json
+```
+
+### Alertmanager webhook over KCP
+
+Send Alertmanager webhook JSON directly:
+
+```bash
+pget alert --kcp 127.0.0.1:29900 --file alert.json
+```
+
 ### Server
 
 ```bash
-pgetkcpd serve --listen <host:port> --root <dir>
+pgetkcpd serve --listen <host:port> --root <dir> [--http-upstream <baseURL>]
 ```
 
 Example:
 
 ```bash
 pgetkcpd serve --listen :29900 --root /srv/files
+```
+
+### HTTP upstream proxy (optional)
+
+If you want RESTful control requests to be forwarded to a real HTTP service (instead of the built-in routes),
+start the server with `--http-upstream`.
+
+Example: proxy Alertmanager API (`http://127.0.0.1:9093`) through KCP:
+
+```bash
+pgetkcpd serve --listen :29900 --root . --http-upstream http://127.0.0.1:9093
+pget call --kcp 127.0.0.1:29900 --method GET --path /api/v2/status
+pget call --kcp 127.0.0.1:29900 --method POST --path /api/v2/alerts --header "Content-Type: application/json" --data @alerts.json
 ```
 
 ## Logging
@@ -94,6 +130,10 @@ PGET_KCP_IO_TIMEOUT_MS=60000 PGET_KCP_CHUNK_SIZE=1048576 pget get --kcp 127.0.0.
 
 - The downloader writes partial files into `_<filename>.<procs>/` and merges them after all parts complete.
 - If older buggy partial files exist and are oversized, the client will truncate them during resume and will only copy the expected bytes during final merge.
+- Built-in control endpoints:
+  - `GET /healthz` -> `ok`
+  - `GET /control/ping` -> `pong`
+  - `POST /alerts/alertmanager` -> accepts Alertmanager webhook JSON (returns 202)
 
 ## Binary
 
@@ -105,3 +145,5 @@ go build ./cmd/pgetkcpd
 ```
 
 ## Author
+
+[codehex](https://twitter.com/CodeHex)

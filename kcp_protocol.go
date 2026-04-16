@@ -10,6 +10,9 @@ const (
 	kcpMsgTypeMeta  = "meta"
 	kcpMsgTypeRange = "range"
 	kcpMsgTypeAck   = "ack"
+	kcpMsgTypeHTTP  = "http"
+	kcpMsgTypeHTTPR = "http_resp"
+	kcpMsgTypeAM    = "alertmanager"
 )
 
 type kcpEnvelope struct {
@@ -48,6 +51,38 @@ type kcpAck struct {
 	Offset int64  `json:"offset,omitempty"`
 	Len    int64  `json:"len,omitempty"`
 	Err    string `json:"err,omitempty"`
+}
+
+// kcpHTTPReq is a lightweight RESTful control request tunneled over KCP.
+// Body is base64-encoded to keep this request in a single frame.
+type kcpHTTPReq struct {
+	Type    string            `json:"type"`
+	ID      string            `json:"id"`
+	Method  string            `json:"method"`
+	Path    string            `json:"path"`
+	Headers map[string]string `json:"headers,omitempty"`
+	BodyB64 string            `json:"body_b64,omitempty"`
+}
+
+type kcpHTTPResp struct {
+	Type    string            `json:"type"`
+	ID      string            `json:"id"`
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers,omitempty"`
+	BodyB64 string            `json:"body_b64,omitempty"`
+	Err     string            `json:"err,omitempty"`
+}
+
+// kcpAlertmanagerMsg carries Alertmanager webhook JSON.
+type kcpAlertmanagerMsg struct {
+	Type    string `json:"type"`
+	ID      string `json:"id,omitempty"`
+	BodyB64 string `json:"body_b64"`
+}
+
+type kcpOKResp struct {
+	OK  bool   `json:"ok"`
+	Err string `json:"err,omitempty"`
 }
 
 func kcpMarshalMetaReq(path string) ([]byte, error) {
